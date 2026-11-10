@@ -273,6 +273,53 @@ const vm = require('vm');
        'object. Received type number (0)'
   });
 
+  // An extension is an object: neither `null` nor a hole is one.
+  for (const contextExtensions of [[null], new Array(1), [{}, null]]) {
+    assert.throws(() => {
+      vm.compileFunction('', undefined, { contextExtensions });
+    }, {
+      name: 'TypeError',
+      code: 'ERR_INVALID_ARG_TYPE',
+    });
+  }
+
+  // The elements that were validated are the ones the function is compiled
+  // with, even when reading an element again gives another value.
+  {
+    let reads = 0;
+    const params = [];
+    Object.defineProperty(params, 0, {
+      enumerable: true,
+      get() { return ++reads === 1 ? 'a' : 42; },
+    });
+    assert.strictEqual(vm.compileFunction('return a;', params)(5), 5);
+    assert.strictEqual(reads, 1);
+  }
+
+  {
+    let reads = 0;
+    const contextExtensions = [];
+    Object.defineProperty(contextExtensions, 0, {
+      enumerable: true,
+      get() { return ++reads === 1 ? { a: 5 } : 42; },
+    });
+    assert.strictEqual(
+      vm.compileFunction('return a;', undefined, { contextExtensions })(),
+      5
+    );
+    assert.strictEqual(reads, 1);
+  }
+
+  // An array behind a proxy is read as any other array is.
+  assert.strictEqual(
+    vm.compileFunction(
+      'return a + b;',
+      new Proxy(['a'], {}),
+      { contextExtensions: new Proxy([{ b: 2 }], {}) }
+    )(1),
+    3
+  );
+
   const oldLimit = Error.stackTraceLimit;
   // Setting value to run the last three tests
   Error.stackTraceLimit = 1;
